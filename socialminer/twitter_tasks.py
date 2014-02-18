@@ -1,8 +1,8 @@
 from __future__ import absolute_import
+# Licensed under the Apache License Version 2.0: http://www.apache.org/licenses/LICENSE-2.0.txt
 """Celery tasks relating to Twitter."""
 
 __author__ = 'Giles Richard Greenway'
-
 
 from datetime import datetime
 
@@ -226,7 +226,7 @@ def getTwitterConnections(user,friends=True,cursor = -1,credentials=False,cacheK
 
 @app.task
 def startScrape(mode='default'):
-      
+    """Start a continuous process of retrieving Twitter users and their Tweets."""  
     if mode == 'default':
         print '*** STARTED SCRAPING: DEFAULT: ***' 
         cache.set('default_scrape','true')
@@ -239,7 +239,7 @@ def startScrape(mode='default'):
           
 @app.task
 def doDefaultScrape(junk=False):
-
+    """Update the timeline and connections of each Twitter user, starting with the earliest scraped."""
     keepGoing = cache.get('default_scrape')
     if (not keepGoing) or keepGoing <> 'true':
         print '*** STOPPED DEFAULT SCRAPE ***' 
@@ -260,7 +260,6 @@ def doDefaultScrape(junk=False):
         getTwitterConnections.delay(whoNext('friends'),friends=False,cacheKey='default_followers')
     else:
         print "*** FOLLOWERS BUSY ***"
-
 
     thisTweet = cache.get('default_tweets')
     if (not thisTweet) or thisTweet == 'done':

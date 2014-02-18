@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+# Licensed under the Apache License Version 2.0: http://www.apache.org/licenses/LICENSE-2.0.txt
 
 __author__ = 'Giles Richard Greenway'
 
@@ -444,11 +445,23 @@ def tweets2Neo(user,tweetDump):
     print '*** '+user+': PUSHED '+str(len(tweetDump['tweets']))+' TWEETS TO NEO IN '+str(howLong)+'s ***'
 
 def cassInsert(table,fields,values):
+        """Produce a Cassandra CQL query for inserting values into a table.
+       
+        Positional arguments:
+        table -- the name of the table
+        fields -- list of field names
+        values -- list of field values
+        """        
     quotedValues = quotedValues = [ str(v) if isinstance(v,(int,long,bool)) else "'"+unicode(re.sub("'","''",v))+"'" for v in values ]
     return ' INSERT INTO '+table+' ('+', '.join(fields)+') VALUES ('+', '.join(quotedValues)+');'
 
 def tweets2Cass(user,tweetDump):
-
+    """Store a set of tweets rendered by "filterTweets" by a given user in Cassandra
+       
+    Positional arguments:
+    user -- the screen_name of the user
+    tweetDump -- rendered tweets from "filterTweets"
+    """  
     started = datetime.now()
 
     cassCluster = Cluster()
@@ -474,6 +487,8 @@ def tweets2Cass(user,tweetDump):
     taggedTweetFields = ['text','user_id_str','tweet_id_str','isotime']
     twitterLinkFields = ['url','expanded_url','user_id_str','tweet_id_str','isotime']
     twitterReplyFields = ['reply_id_str','reply_user_id_str','isotime','id_str','user_id_str'] 
+
+    # Fill in the various tables...
  
     for tweet in tweetDump['tweets']:
         tweetKeys,tweetValues = unpackTweet(tweet)
@@ -535,12 +550,19 @@ def tweets2Cass(user,tweetDump):
     print '*** '+user+': PUSHED '+str(len(tweetDump['tweets']))+' TWEETS TO CASSANDRA IN '+str(howLong)+'s ***'
 
 
-def uniqueNeoRelation(a,b,rel):
-    return u'CREATE UNIQUE ('+a+u')-[:`'+rel+u'`]->('+b+u')'
-
-                
+#def uniqueNeoRelation(a,b,rel):
+#    return u'CREATE UNIQUE ('+a+u')-[:`'+rel+u'`]->('+b+u')'
+              
 def pushConnections2Neo(user, renderedTwits, friends=True):
-
+    """Store a set of tweets rendered by "filterTweets" by a given user in Neo4J.
+       
+    Positional arguments:
+    user -- the screen_name of the user
+    renderedTwits -- rendered Twitter users
+    
+    Keyword arguments:
+    friends -- "renderedTwits" are the user's friends if True, (default) else they're followers
+    """  
     started = datetime.now()
     rightNow = started.isoformat()
 
@@ -575,7 +597,9 @@ def pushConnections2Neo(user, renderedTwits, friends=True):
         except:
             print "*** NEO: CAN'T SUBMIT BATCH. RETRYING ***"
            
-
+    # Adding labels to indexed nodes is broken, hence the __temp_label__ field.
+    # See the small footnote here: http://stackoverflow.com/questions/20010509/failed-writebatch-operation-with-py2neo
+    # Attach the proper labels in a seperate Cypher query.
     fixedLabels = False
     while not fixedLabels:
         try:
@@ -590,6 +614,15 @@ def pushConnections2Neo(user, renderedTwits, friends=True):
     print '*** '+user+': PUSHED '+str(len(renderedTwits))+job+' TO NEO IN '+str(howLong)+'s ***'
         
 def pushConnections2Cass(user, renderedTwits, friends=True):
+    """Store a set of tweets rendered by "filterTweets" by a given user in Cassandra.
+       
+    Positional arguments:
+    user -- the screen_name of the user
+    renderedTwits -- rendered Twitter users
+    
+    Keyword arguments:
+    friends -- "renderedTwits" are the user's friends if True, (default) else they're followers
+    """  
 
     started = datetime.now()
 
@@ -600,7 +633,6 @@ def pushConnections2Cass(user, renderedTwits, friends=True):
     try:
         userIdStr = [cassSession.execute("SELECT id_str from twitter_user_lookup WHERE screen_name='"+user+"';")[0][0]]
     except:
-        print ""
         return
     
     pushUsers2Cass(renderedTwits,cassSession)
@@ -623,7 +655,7 @@ def pushConnections2Cass(user, renderedTwits, friends=True):
     print '*** '+user+': PUSHED '+str(len(renderedTwits))+job+' TO CASSANDRA IN '+str(howLong)+'s ***'
 
 def nextFriends():
-    """ Return a list of non-supernode users who have less friend relationships than Twitter thinks they should."""
+    """ Return a list of non-supernode users who have fewer friend relationships than Twitter thinks they should."""
     query = neo4j.CypherQuery(neoDb,'MATCH (a:twitter_user)-[:FOLLOWS]-(b:twitter_user) WITH a, COUNT(*) as c\n'
     +'WHERE c < a.friends_count/2 AND a.friends_count < 1000 AND a.followers_count < 1000 AND NOT has (a.protected)\n'
     +'RETURN a.screen_name\n'
@@ -632,7 +664,7 @@ def nextFriends():
     return [ i.values[0] for i in query.execute().data ]
 
 def nextFollowers():
-    """ Return a list of non-supernode users who have less follower relationships than Twitter thinks they should."""
+    """ Return a list of non-supernode users who have fewer follower relationships than Twitter thinks they should."""
     query = neo4j.CypherQuery(neoDb,'MATCH (b:twitter_user)-[:FOLLOWS]-(a:twitter_user) WITH a, COUNT(*) as c\n'
     +'WHERE c < a.followers_count/2 AND a.followers_count < 1000 AND a.friends_count < 1000 AND NOT has (a.protected)\n'
     +'RETURN a.screen_name\n'
@@ -641,14 +673,13 @@ def nextFollowers():
     return [ i.values[0] for i in query.execute().data ]
 
 def nextTweets():
+    """ Return a list of non-supernode users who have fewer tweets than Twitter thinks they should."""
     query = neo4j.CypherQuery(neoDb,'MATCH a WHERE NOT (a:twitter_user)-[:TWEETED]->() WITH a\n'
     +'WHERE a.statuses_count > 0 AND a.followers_count < 1000 AND a.friends_count < 1000 AND NOT has (a.protected)\n'                          
     +'RETURN a.screen_name\n'
     +'ORDER BY a.last_scraped\n'
     +'LIMIT 20')
     return [ i.values[0] for i in query.execute().data ]
-
-
 
 def whoNext(job):
   
@@ -669,9 +700,6 @@ def whoNext(job):
             pass
         
     return victimList[0]
-
-
-
 
 #{u'attributes': {},
 # u'bounding_box': {u'coordinates': [[[-0.14205790000000001, 51.5185518],

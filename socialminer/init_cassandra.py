@@ -1,4 +1,7 @@
 from __future__ import absolute_import
+# Licensed under the Apache License Version 2.0: http://www.apache.org/licenses/LICENSE-2.0.txt
+
+__author__ = 'Giles Richard Greenway'
 
 import re
 
@@ -27,7 +30,13 @@ def cassTable(table,fields,keys):
     query += 'PRIMARY KEY ('+','.join(keys)+'));'
     return query
 
-def initAllTheTables(show=False):
+def initAllTheTables(preview=False):
+    """Create a keyspace in Cassandra and initialise all the required table.
+       
+    Keyword arguments:
+    preview -- Display all the tables but don't create anything if True.
+    """      
+    
     taggedTweetFields = ['text','user_id_str','tweet_id_str','isotime']
     twitterMentionsFields = ['target_id_str','user_id_str','tweet_id_str','isotime']
     twitterLinkFields = ['url','expanded_url','user_id_str','tweet_id_str','isotime']
@@ -60,18 +69,11 @@ def initAllTheTables(show=False):
     cassSession.execute("CREATE KEYSPACE IF NOT EXISTS "+cassKeySpace+" WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor' : 1};")
     cassSession.set_keyspace(cassKeySpace) 
  
- 
-    if show:
+    if preview:
         print '\n\n'.join(renderedTables)
     else:
         map(cassSession.execute,renderedTables)
-
-
         
-        
-        
-
-
-
-
+if __name__ == "__main__":
+    initAllTheTables()
 
