@@ -78,10 +78,14 @@ def pushRenderedTweets2Neo(user,tweetDump):
 @app.task
 def pushRenderedTweets2Cass(user,tweetDump):
     tweets2Cass(user,tweetDump)
+    
+@app.task
+def pushRenderedTweets2Solr(tweets):
+    tweets2Solr(tweets)    
 
 @app.task
 def pushTweets(tweets,user,cacheKey=False):
-    """ Dump a set of tweets from a given user's timeline to Neo4J/Cassandra.
+    """ Dump a set of tweets from a given user's timeline to Neo4J/Cassandra/Solr.
 
     Positional arguments:
     tweets -- a list of tweets as returned by Twython.
@@ -96,6 +100,7 @@ def pushTweets(tweets,user,cacheKey=False):
 
     pushRenderedTweets2Neo.delay(user,tweetDump) 
     pushRenderedTweets2Cass.delay(user,tweetDump)
+    pushRenderedTweets2Solr.delay(tweetDump['tweets']+tweetDump['retweets'])
 
     if cacheKey: # These are the last Tweets, tell the scaper we're done.
         cache.set(cacheKey,'done')
@@ -236,7 +241,7 @@ def getTwitterConnections(user,friends=True,cursor = -1,credentials=False,cacheK
 
 @app.task
 def seedUser(user,scrape=False):
-        """Retrieve the given Twitter user's account, and their timelines, friends and followers. Optionally, start scraping around them."""
+    """Retrieve the given Twitter user's account, and their timelines, friends and followers. Optionally, start scraping around them."""
     print '*** SEEDING: '+user+' ***'
     if scrape:
         chain(getTwitterUsers.s([user]),getTwitterConnections.si(user), getTwitterConnections.si(user,friends=False), 

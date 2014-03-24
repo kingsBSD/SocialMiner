@@ -15,6 +15,7 @@ from twython import Twython, TwythonAuthError, TwythonRateLimitError, TwythonErr
 
 from socialminer.db_settings import *
 from socialminer.twitter_settings import *
+from socialminer.solr_tools import addSolrDocs
 
 """
 Fields of interest from twitter users and tweets returned by Twython.
@@ -293,6 +294,12 @@ def filterTweets(tweets):
 
     return {'tweets':allTweets, 'retweets':allRetweets,  'mentions':allMentions, 'tags':allHashTags, 'urls':allURLs, 'tweetReplies':allTweetReplies, 'userReplies':allUserReplies}
 
+def tweets2Solr(tweets):
+    started = datetime.now()
+    addSolrDocs([ {'doc_type':'tweet', 'id':tw['id_str'], 'tweet_text':tw['text']} for tw in tweets ])
+    howLong = (datetime.now() - started).seconds
+    print '*** PUSHED '+str(len(tweets))+' TWEETS TO SOLR IN '+str(howLong)+'s ***'    
+    
 def tweets2Neo(user,tweetDump):
     """Store a rendered set of tweets by a given user in Neo4J.
        
