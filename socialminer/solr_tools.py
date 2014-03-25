@@ -6,8 +6,11 @@ from db_settings import solrURL
 
 solrFields = {
     'doc_type': {'type':'string','stored':True},
-    'tweet_text' : {'type':'text_en','stored':True, 'termVectors':True, 'termPositions':True, 'termOffsets':True}
+    'tweet_text' : {'type':'text_en','stored':True, 'termVectors':True, 'termPositions':True, 'termOffsets':True},
+    'tweet_time' : {'type':'date','stored':True}
 }    
+
+#solrDateFields = [ field if solrFields[field]['type'] == 'date' for field in solrFields.keys() ]
 
 def addSolrFields():
     for fieldName in solrFields.keys():

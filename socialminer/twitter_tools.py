@@ -296,7 +296,7 @@ def filterTweets(tweets):
 
 def tweets2Solr(tweets):
     started = datetime.now()
-    addSolrDocs([ {'doc_type':'tweet', 'id':tw['id_str'], 'tweet_text':tw['text']} for tw in tweets ])
+    addSolrDocs([ {'doc_type':'tweet', 'id':tw['id_str'], 'tweet_text':tw['text'],  'tweet_time':tw['isotime']+'Z'} for tw in tweets ])
     howLong = (datetime.now() - started).seconds
     print '*** PUSHED '+str(len(tweets))+' TWEETS TO SOLR IN '+str(howLong)+'s ***'    
     
