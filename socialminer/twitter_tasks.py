@@ -13,6 +13,7 @@ from socialminer.celery import app
 from socialminer.db_settings import cache
 from socialminer.twitter_settings import *
 from socialminer.twitter_tools import *
+from socialminer.twitter_import import *
 
 @app.task
 def twitterCall(methodName,args,credentials=False):
@@ -157,6 +158,15 @@ def getTweets(user,maxTweets=3000,count=0,tweetId=0,cacheKey=False,credentials=F
             if result == 'limited':
                 raise getTweets.retry(countdown = api.get_user_timeline_limited())
 
+@app.task
+def importTweets(path):
+    
+    tweetDump = tweetsByUser(readTweets(path))
+    for twit in tweetDump.keys():
+        thisDump = tweetDump[twit]
+        chain(pushTwitterUsers.s([thisDump['profile']]), pushTweets.si(thisDump['tweets'],twit))()
+
+        
 @app.task
 def pushRenderedConnections2Neo(user,renderedTwits,friends=True):
     pushConnections2Neo(user,renderedTwits,friends=friends)

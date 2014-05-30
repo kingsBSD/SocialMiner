@@ -115,21 +115,27 @@ class ratedTwitter(object):
 
         return result
 
-    def __init__(self,credentials=False,useLocal=False):
-        
+    def __init__(self,credentials=False,callback=False,verifier=False):
+        self.auth = {}
         if not credentials:
-            if useLocal:
-                self.twitter = Twython(CONSUMER_KEY,CONSUMER_SECRET,OAUTH_TOKEN,OAUTH_TOKEN_SECRET)
-                self.handle = 'local_'
+            if callback:
+                self.twitter = Twython(CONSUMER_KEY,CONSUMER_SECRET)
+                self.handle = 'auth_'
+                self.auth = self.twitter.get_authentication_tokens(callback_url=callback)
             else:
                 self.twitter = Twython(CONSUMER_KEY,access_token=ACCESS_TOKEN)
                 self.handle = 'app_'
+        else:
+             self.twitter = Twython(CONSUMER_KEY,CONSUMER_SECRET,credentials[0],credentials[1])
+             if verifier:
+                 self.auth = self.twitter.get_authorized_tokens(verifier)
+
                 
 """
 Attach the following API calls to the ratedTwitter class, so that <ratedTwitter>.<method>(**args) makes the call via <ratedTwitter.__method_call__
 and <ratedTwitter>.<method>_limited() makes the appropriate call to __can_we_do_that__.
 """
-for name in ['lookup_user','get_friends_list','get_followers_list','get_user_timeline']:
+for name in ['lookup_user','get_friends_list','get_followers_list','get_user_timeline','search']:
     def f(self,name=name,**args): # http://math.andrej.com/2009/04/09/pythons-lambda-is-broken/
         return self.__method_call__(name,args)
     setattr(ratedTwitter,name,f)
@@ -148,7 +154,9 @@ def getTwitterAPI(credentials=False):
 noSlash = q=re.compile(r'\\')
 
 def cypherVal(val):
-    """Escape quotes and slashes for use in Cypher queries."""    
+    """Escape quotes and slashes for use in Cypher queries."""
+    if isinstance(val, (float)):
+        return unicode(int(val))
     if isinstance(val, (int, long, bool)):
         return unicode(val)
     else:
@@ -191,7 +199,9 @@ def pushUsers2Neo(renderedTwits):
 def quoteCassVal(v):
     """Convert a value into a suitable string for Cassandra, enclosing in quoutes and escaping as needed."""
     if  isinstance(v,(int,long,bool)):
-        return str(v)    
+        return str(v)
+    if isinstance(v,(float)):
+        return str(int(v))
     return "'"+unicode(re.sub("'","''",v))+"'"
 
 def pushUsers2Cass(renderedTwits,cassSession=False):
@@ -296,7 +306,7 @@ def filterTweets(tweets):
 
 def tweets2Solr(tweets):
     started = datetime.now()
-    addSolrDocs([ {'doc_type':'tweet', 'id':tw['id_str'], 'tweet_text':tw['text'],  'tweet_time':tw['isotime']+'Z'} for tw in tweets ])
+    addSolrDocs([ {'doc_type':'tweet', 'id':tw['id_str'], 'tweet_text':tw['text'],  'tweet_time':tw['isotime']} for tw in tweets ])
     howLong = (datetime.now() - started).seconds
     print '*** PUSHED '+str(len(tweets))+' TWEETS TO SOLR IN '+str(howLong)+'s ***'    
     
@@ -335,6 +345,7 @@ def tweets2Neo(user,tweetDump):
     taggedIndex = neoDb.get_or_create_index(neo4j.Relationship, 'tagged')
     linkedIndex = neoDb.get_or_create_index(neo4j.Relationship, 'linked')
 
+# Seems fixed in the latest Py2Neo:
 # Adding labels to indexed nodes is broken, hence the __temp_label__ field.
 # See the small footnote here: http://stackoverflow.com/questions/20010509/failed-writebatch-operation-with-py2neo
 
@@ -344,12 +355,13 @@ def tweets2Neo(user,tweetDump):
             return allTwits[tw['id_str']]
         else:
             tw['last_scraped'] = rightNow
-            tw['__temp_label__'] = 'twitter_user'
+            #tw['__temp_label__'] = 'twitter_user'
             abstractTwit = {}
             for k in twitterUserFields:
                 if tw.get(k,False):
                     abstractTwit[k] = cypherVal(tw[k])            
             twNode = batch.get_or_create_in_index(neo4j.Node,userIndex,'id_str',tw['id_str'],abstract=abstractTwit)
+            batch.set_labels(twNode, *['twitter_user'])
             allTwits[tw['id_str']] = twNode
             return twNode    
     
@@ -364,11 +376,13 @@ def tweets2Neo(user,tweetDump):
                 if tt.get(k,False):
                     abstractTweet[k] = cypherVal(tt[k])   
             if retweet:
-                abstractTweet['__temp_label__'] = 'retweet'
+                #abstractTweet['__temp_label__'] = 'retweet'
                 ttNode = batch.get_or_create_in_index(neo4j.Node,retweetIndex,'id_str',tt['id_str'], abstract=abstractTweet)
+                batch.set_labels(ttNode, *['retweet'])
             else:
-                abstractTweet['__temp_label__'] = 'tweet'
-                ttNode = batch.get_or_create_in_index(neo4j.Node,tweetIndex,'id_str',tt['id_str'], abstract=abstractTweet)            
+                #abstractTweet['__temp_label__'] = 'tweet'
+                ttNode = batch.get_or_create_in_index(neo4j.Node,tweetIndex,'id_str',tt['id_str'], abstract=abstractTweet)
+                batch.set_labels(ttNode, *['tweet'])
                                    
             allTwits[tt['id_str']] = ttNode
             return ttNode
@@ -408,7 +422,9 @@ def tweets2Neo(user,tweetDump):
         tweetNode = getTweetNode(tweet)
         hashNode = hashNodes.get(tag['text'],False)
         if not hashNode:
-            hashNode = batch.get_or_create_in_index(neo4j.Node,hashIndex,'text',tag['text'],abstract={'text':tag['text'],'__temp_label__':'hashtag'})
+            #hashNode = batch.get_or_create_in_index(neo4j.Node,hashIndex,'text',tag['text'],abstract={'text':tag['text'],'__temp_label__':'hashtag'})
+            hashNode = batch.get_or_create_in_index(neo4j.Node,hashIndex,'text',tag['text'],abstract={'text':tag['text']})
+            batch.set_labels(hashNode, *['hashtag'])
             hashNodes[tag['text']] = hashNode
         
         # Create relationship (tweet)-[:TAGGED]->(hashtag)
@@ -420,11 +436,14 @@ def tweets2Neo(user,tweetDump):
         tweetNode = getTweetNode(tweet)       
         urlNode = urlNodes.get(url['url'],False)
         if not urlNode:
-            urlNode = batch.get_or_create_in_index(neo4j.Node,urlIndex,'url',url['url'],abstract={'url':url['url'],'expanded_url':url['expanded_url'],'__temp_label__':'url'})
+            #urlNode = batch.get_or_create_in_index(neo4j.Node,urlIndex,'url',url['url'],abstract={'url':url['url'],'expanded_url':url['expanded_url'],'__temp_label__':'url'})
+            urlNode = batch.get_or_create_in_index(neo4j.Node,urlIndex,'url',url['url'],abstract={'url':url['url'],'expanded_url':url['expanded_url'],})
             urlNodes[url['url']] = urlNode
+            batch.set_labels(urlNode, *['url'])
         
         # Create relationship (tweet)-[:LINKS]->(url)
         batch.get_or_create_indexed_relationship(linkedIndex,'linked',tweet['id_str']+' links to '+url['url'],tweetNode,'LINKS',urlNode)
+        
 
     for tweetReply in tweetDump['tweetReplies']:
         reply, tweet = tweetReply
@@ -448,29 +467,43 @@ def tweets2Neo(user,tweetDump):
         except:
             print "*** CAN'T SUBMIT BATCH. RETRYING ***"
  
-    # Adding labels to indexed nodes is broken, hence the __temp_label__ field.
-    # See the small footnote here: http://stackoverflow.com/questions/20010509/failed-writebatch-operation-with-py2neo
-    # Attach the proper labels in a seperate Cypher query.
-    fixQueries = ['MATCH (n {__temp_label__:"twitter_user"}) WITH n SET n:twitter_user REMOVE n.__temp_label__',
-        'MATCH (n {__temp_label__:"tweet"}) WITH n SET n:tweet REMOVE n.__temp_label__',
-        'MATCH (n {__temp_label__:"hashtag"}) WITH n SET n:hashtag REMOVE n.__temp_label__',
-        'MATCH (n {__temp_label__:"url"}) WITH n SET n:url REMOVE n.__temp_label__']
-    
-    for queryStr in fixQueries:
-        fixedLabels = False
-        while not fixedLabels:
-            try:
-                query = neo4j.CypherQuery(neoDb,queryStr)
-                query.execute()
-                fixedLabels = True
-            except:
-                print "*** CAN'T SET LABELS. RETRYING ***" 
+ 
+# This appears to be fixed now: 
+#    # Adding labels to indexed nodes is broken, hence the __temp_label__ field.
+#    # See the small footnote here: http://stackoverflow.com/questions/20010509/failed-writebatch-operation-with-py2neo
+#    # Attach the proper labels in a seperate Cypher query.
+#    fixQueries = ['MATCH (n {__temp_label__:"twitter_user"}) WITH n SET n:twitter_user REMOVE n.__temp_label__',
+#        'MATCH (n {__temp_label__:"tweet"}) WITH n SET n:tweet REMOVE n.__temp_label__',
+#        'MATCH (n {__temp_label__:"hashtag"}) WITH n SET n:hashtag REMOVE n.__temp_label__',
+#        'MATCH (n {__temp_label__:"url"}) WITH n SET n:url REMOVE n.__temp_label__']
+
+#    batchTime = datetime.now()    
+#    for queryStr in fixQueries:
+#        fixedLabels = False
+#        while not fixedLabels:
+#            try:
+#                query = neo4j.CypherQuery(neoDb,queryStr)
+#                query.execute()
+#                fixedLabels = True
+#            except:
+#                print "*** CAN'T SET LABELS. RETRYING ***" 
+#    print (datetime.now()-batchTime).seconds
 
     howLong = (datetime.now() - started).seconds
     print '*** '+user+': PUSHED '+str(len(tweetDump['tweets']))+' TWEETS TO NEO IN '+str(howLong)+'s ***'
 
 def cassInsert(table,fields,values):
-    quotedValues = quotedValues = [ str(v) if isinstance(v,(int,long,bool)) else "'"+unicode(re.sub("'","''",v))+"'" for v in values ]
+    cleanValues = []
+    for i, field in enumerate(fields):
+        if field in ['utc_offset'] or re.match(r'.*_count$|^id$',field) or re.match(r'.*_id$',field):
+            cleanValues.append(int(values[i]))
+        else:
+            if values[i]:
+                cleanValues.append(values[i])
+            else:
+                print "Bad field: "+field
+                cleanValues.append('None')
+    quotedValues = quotedValues = [ str(v) if isinstance(v,(int,long,bool)) else "'"+unicode(re.sub("'","''",v))+"'" for v in cleanValues ]
     return ' INSERT INTO '+table+' ('+', '.join(fields)+') VALUES ('+', '.join(quotedValues)+');'
 
 def tweets2Cass(user,tweetDump):
@@ -555,7 +588,10 @@ def tweets2Cass(user,tweetDump):
             pass
         
     query += ' APPLY BATCH'
-    cassSession.execute(query)    
+    try:
+        cassSession.execute(query)    
+    except:
+        print query
 
     howLong = (datetime.now() - started).seconds
     print '*** '+user+': PUSHED '+str(len(tweetDump['tweets']))+' TWEETS TO CASSANDRA IN '+str(howLong)+'s ***'
@@ -591,9 +627,10 @@ def pushConnections2Neo(user, renderedTwits, friends=True):
 
     for twit in renderedTwits:
         twit['last_scraped'] = rightNow
-        twit['__temp_label__'] = 'twitter_user'
+        #twit['__temp_label__'] = 'twitter_user'
         
-        link(batch.get_or_create_in_index(neo4j.Node, userIndex, 'id_str', twit['id_str'], abstract = twit))
+        twitNode = link(batch.get_or_create_in_index(neo4j.Node, userIndex, 'id_str', twit['id_str'], abstract = twit))
+        batch.set_labels(twitNode, *['twitter_user'])
 
     batchDone = False
     while not batchDone:
@@ -603,16 +640,14 @@ def pushConnections2Neo(user, renderedTwits, friends=True):
         except:
             print "*** NEO: CAN'T SUBMIT BATCH. RETRYING ***"
            
-
-    fixedLabels = False
-    while not fixedLabels:
-        try:
-            query = neo4j.CypherQuery(neoDb,'MATCH (n {__temp_label__:"twitter_user"}) WITH n SET n:twitter_user REMOVE n.__temp_label__')
-            query.execute()
-            fixedLabels = True
-        except:
-            print "*** NEO: CAN'T SET LABELS. RETRYING ***"
- 
+#    fixedLabels = False
+#    while not fixedLabels:
+#        try:
+#            query = neo4j.CypherQuery(neoDb,'MATCH (n {__temp_label__:"twitter_user"}) WITH n SET n:twitter_user REMOVE n.__temp_label__')
+#            query.execute()
+#            fixedLabels = True
+#        except:
+#            print "*** NEO: CAN'T SET LABELS. RETRYING ***"
             
     howLong = (datetime.now() - started).seconds
     print '*** '+user+': PUSHED '+str(len(renderedTwits))+job+' TO NEO IN '+str(howLong)+'s ***'

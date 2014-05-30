@@ -10,7 +10,7 @@ solrFields = {
     'tweet_time' : {'type':'date','stored':True}
 }    
 
-#solrDateFields = [ field if solrFields[field]['type'] == 'date' for field in solrFields.keys() ]
+solrDateFields = [ field for field in solrFields.keys() if solrFields[field]['type'] == 'date' ]
 
 def addSolrFields():
     for fieldName in solrFields.keys():
@@ -21,7 +21,15 @@ def addSolrFields():
             print "Couldn't add field: '"+fieldName
             
 def addSolrDocs(docs):
+    for doc in docs:
+        for field in solrDateFields:
+            val = doc.get(field,False)
+            if val:
+                if val[-1] <> 'Z':
+                    doc[field] += 'Z'
     resp = requests.post(solrURL+'update/json?commit=true',data=json.dumps(docs),headers = {'content-type': 'application/json'})
     if resp.status_code <> 200:
         print "*** Can't push Solr docs... ***"
+        print resp.text
+
 
