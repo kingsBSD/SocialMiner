@@ -9,7 +9,7 @@ from datetime import datetime
 
 from celery import chain, group
 
-from socialminer.celery import app
+from socialminer.tasks import app
 from socialminer.db_settings import cache
 from socialminer.twitter_settings import *
 from socialminer.twitter_tools import *

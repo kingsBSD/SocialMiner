@@ -9,7 +9,7 @@ import pprint
 import re
 
 from cassandra.cluster import Cluster
-from py2neo import cypher, neo4j, node, rel
+from py2neo import cypher, neo4j, Node, Relationship, rel
 import redis
 from twython import Twython, TwythonAuthError, TwythonRateLimitError, TwythonError
 
@@ -32,10 +32,10 @@ tweetFields = [u'text',u'in_reply_to_status_id',u'id',u'favorite_count',u'source
 cassTwitterUserFields = twitterUserFields[:-1]
 cassTweetFields = tweetFields[:-1] + ['user_id_str']
 
-userIndex = neoDb.get_or_create_index(neo4j.Node, 'twitter_user')
-tweetIndex = neoDb.get_or_create_index(neo4j.Node, 'tweet')
-retweetIndex = neoDb.get_or_create_index(neo4j.Node, 'retweet')
-friendIndex = neoDb.get_or_create_index(neo4j.Relationship, 'friends')
+#userIndex = neoDb.get_or_create_index(neo4j.Node, 'twitter_user')
+#tweetIndex = neoDb.get_or_create_index(neo4j.Node, 'tweet')
+#retweetIndex = neoDb.get_or_create_index(neo4j.Node, 'retweet')
+#friendIndex = neoDb.get_or_create_index(neo4j.Relationship, 'friends')
 
 #def buildNeoIndices():
 #    indices = [{'label':'twitter_user','keys':['screen_name']},{'label':'tweet','keys':['id']}]
@@ -123,7 +123,7 @@ class ratedTwitter(object):
                 self.handle = 'auth_'
                 self.auth = self.twitter.get_authentication_tokens(callback_url=callback)
             else:
-                self.twitter = Twython(CONSUMER_KEY,access_token=ACCESS_TOKEN)
+                self.twitter = Twython(CONSUMER_KEY,CONSUMER_SECRET)
                 self.handle = 'app_'
         else:
              self.twitter = Twython(CONSUMER_KEY,CONSUMER_SECRET,credentials[0],credentials[1])
@@ -189,12 +189,14 @@ def setUserDefunct(user):
 
 def pushUsers2Neo(renderedTwits):
     """Store  a list of rendered Twitter users in Neo4J. No relationships are formed."""
-    for twit in renderedTwits:
-        twitNode = userIndex.get_or_create('id_str', twit['id_str'],twit)
-        try:
-            twitNode.add_labels('twitter_user')
-        except:
-            pass
+    neoDb.create(*[ Node('twitter_user', **twit) for twit in renderedTwits ])
+    
+    #for twit in renderedTwits:
+    #    twitNode = userIndex.get_or_create('id_str', twit['id_str'],twit)
+    #    try:
+    #        twitNode.add_labels('twitter_user')
+    #    except:
+    #        pass
         
 def quoteCassVal(v):
     """Convert a value into a suitable string for Cassandra, enclosing in quoutes and escaping as needed."""
@@ -611,34 +613,41 @@ def pushConnections2Neo(user, renderedTwits, friends=True):
     except:
         return
 
-    batch = neo4j.WriteBatch(neoDb)
+    twitNodes = [ Node('twitter_user',**twit) for twit in renderedTwits ]
+    neoDb.create(*twitNodes)
+
+    #batch = neo4j.WriteBatch(neoDb)
 
     if friends:
         job = ' FRIENDS'
-        userNode.update_properties({'friends_last_scraped':rightNow})
-        connlabel = lambda a: user+' befriended '+a['screen_name']
-        link = lambda n: batch.get_or_create_indexed_relationship(friendIndex,'friends',connlabel(twit),userNode,'FOLLOWS',n)
+        neoDb.create_unique(*[ Relationship(userNode,'FOLLOWS',twit) for twit in twitNodes])
+        #userNode.update_properties({'friends_last_scraped':rightNow})
+        #userNode.properties['friends_last_scraped'] = rightNow
+        #connlabel = lambda a: user+' befriended '+a['screen_name']
+        #link = lambda n: batch.get_or_create_indexed_relationship(friendIndex,'friends',connlabel(twit),userNode,'FOLLOWS',n)
         
     else:
         job = ' FOLLOWERS'
-        userNode.update_properties({'followers_last_scraped':rightNow})
-        connlabel = lambda a: a['screen_name']+' befriended '+user
-        link = lambda n: batch.get_or_create_indexed_relationship(friendIndex,'friends',connlabel(twit),n,'FOLLOWS',userNode)
+        neoDb.create_unique(*[ Relationship(twit,'FOLLOWS',userNode) for twit in twitNodes])
+        #userNode.update_properties({'followers_last_scraped':rightNow})
+        #userNode.properties['followers_last_scraped'] = rightNow
+        #connlabel = lambda a: a['screen_name']+' befriended '+user
+        #link = lambda n: batch.get_or_create_indexed_relationship(friendIndex,'friends',connlabel(twit),n,'FOLLOWS',userNode)
 
-    for twit in renderedTwits:
-        twit['last_scraped'] = rightNow
+    #for twit in renderedTwits:
+        #twit['last_scraped'] = rightNow
         #twit['__temp_label__'] = 'twitter_user'
         
-        twitNode = link(batch.get_or_create_in_index(neo4j.Node, userIndex, 'id_str', twit['id_str'], abstract = twit))
-        batch.set_labels(twitNode, *['twitter_user'])
+        #twitNode = link(batch.get_or_create_in_index(neo4j.Node, userIndex, 'id_str', twit['id_str'], abstract = twit))
+        #batch.set_labels(twitNode, *['twitter_user'])
 
-    batchDone = False
-    while not batchDone:
-        try:
-            batch.submit()
-            batchDone = True
-        except:
-            print "*** NEO: CAN'T SUBMIT BATCH. RETRYING ***"
+    #batchDone = False
+    #while not batchDone:
+    #    try:
+    #        batch.submit()
+    #        batchDone = True
+    #    except:
+    #        print "*** NEO: CAN'T SUBMIT BATCH. RETRYING ***"
            
 #    fixedLabels = False
 #    while not fixedLabels:
